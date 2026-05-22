@@ -1,11 +1,12 @@
-import { parseLockfile } from "./src/parse-lockfile";
-import { checkVulnerabilitiesBatch, type VulnCheckResult } from "./src/check-vuln";
-
+import {
+    parseLockfile,
+    checkVulnerabilitiesBatch,
+    type VulnCheckResult,
+} from "../core";
 
 async function scan() {
     const projectDir = process.cwd();
 
-    // ── Step 1: Parse the lockfile ───────────────────────────────────────────
     let parseResult;
     try {
         parseResult = await parseLockfile(projectDir);
@@ -31,7 +32,6 @@ async function scan() {
         console.log();
     }
 
-    // ── Step 2: Check packages against OSV in batch ──────────────────────────
     const vulnerable: VulnCheckResult[] = [];
     const errors: { name: string; version: string; error: string }[] = [];
     let scanned = 0;

@@ -1,8 +1,11 @@
 {
   "name": "package_scanner",
-  "module": "index.ts",
+  "module": "core/index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "scan": "bun cli/index.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },

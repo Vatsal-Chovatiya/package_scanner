@@ -1,8 +1,6 @@
 import { join, relative } from "path";
 import { readdir } from "fs/promises";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 export interface PackageEntry {
     name: string;
     version: string;
@@ -19,25 +17,22 @@ export interface ParseResult {
     packages: PackageEntry[];
     lockfiles: LockfileInfo[];
 }
+
 function stripTrailingCommas(jsonString: string): string {
     let insideString = false;
     let result = "";
     for (let i = 0; i < jsonString.length; i++) {
         const char = jsonString[i];
-
-        // Handle quotes, avoiding escaped quotes
         if (char === '"' && (i === 0 || jsonString[i - 1] !== '\\')) {
             insideString = !insideString;
         }
 
         if (!insideString && char === ',') {
-            // Look ahead to check if the next non-whitespace character is a closing brace/bracket
             let j = i + 1;
             while (j < jsonString.length && /\s/.test(jsonString[j]!)) {
                 j++;
             }
             if (j < jsonString.length && (jsonString[j] === '}' || jsonString[j] === ']')) {
-                // Found a trailing comma — skip it
                 continue;
             }
         }
@@ -50,7 +45,6 @@ function parseBunLockPackages(packages: Record<string, unknown>): PackageEntry[]
     const entries: PackageEntry[] = [];
 
     for (const [pkgName, pkgData] of Object.entries(packages)) {
-        // Skip the root workspace entry (empty string key)
         if (pkgName === "") continue;
 
         if (!Array.isArray(pkgData) || pkgData.length === 0) continue;
@@ -65,7 +59,6 @@ function parseBunLockPackages(packages: Record<string, unknown>): PackageEntry[]
                 version: specifier.slice(lastAtIndex + 1),
             });
         } else {
-            // Fallback: treat the whole specifier as the version
             entries.push({ name: pkgName, version: specifier });
         }
     }
@@ -77,10 +70,9 @@ function parseNpmLockPackages(packages: Record<string, unknown>): PackageEntry[]
     const entries: PackageEntry[] = [];
 
     for (const [pkgPath, pkgData] of Object.entries(packages)) {
-        // Skip root entry
         if (pkgPath === "") continue;
 
-        // Path is like "node_modules/zod" or "node_modules/@types/bun"
+        
         const cleanName = pkgPath.replace(/^node_modules\//, "");
 
         if (pkgData && typeof pkgData === "object" && "version" in pkgData) {
