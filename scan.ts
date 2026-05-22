@@ -1,5 +1,5 @@
 import { parseLockfile } from "./src/parse-lockfile";
-import { checkVulnerabilities, type VulnCheckResult } from "./src/check-vuln";
+import { checkVulnerabilitiesBatch, type VulnCheckResult } from "./src/check-vuln";
 
 
 async function scan() {
@@ -31,29 +31,28 @@ async function scan() {
         console.log();
     }
 
-    // ── Step 2: Check each package against OSV — sequentially ────────────────
+    // ── Step 2: Check packages against OSV in batch ──────────────────────────
     const vulnerable: VulnCheckResult[] = [];
     const errors: { name: string; version: string; error: string }[] = [];
     let scanned = 0;
 
-    for (const pkg of packages) {
-        scanned++;
-        // Simple progress indicator without drowning clean packages in noise
-        process.stdout.write(
-            `  Checking ${pkg.name}@${pkg.version} (${scanned}/${packages.length})...\r`
-        );
+    process.stdout.write(`  Checking ${packages.length} packages against OSV API...\r`);
 
-        try {
-            const result = await checkVulnerabilities(pkg.name, pkg.version);
-
-            if (result.vulns.length > 0) {
-                vulnerable.push(result);
+    try {
+        const results = await checkVulnerabilitiesBatch(packages);
+        scanned = packages.length;
+        for (const res of results) {
+            if (res.vulns.length > 0) {
+                vulnerable.push(res);
             }
-        } catch (err) {
+        }
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        for (const pkg of packages) {
             errors.push({
                 name: pkg.name,
                 version: pkg.version,
-                error: err instanceof Error ? err.message : String(err),
+                error: errMsg,
             });
         }
     }

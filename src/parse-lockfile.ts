@@ -94,15 +94,12 @@ function parseNpmLockPackages(packages: Record<string, unknown>): PackageEntry[]
     return entries;
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
 async function findLockfiles( dir: string,  baseDir: string = dir): Promise<{ absolutePath: string; relativePath: string; type: "bun.lock" | "package-lock.json" }[]> {
     const results: { absolutePath: string; relativePath: string; type: "bun.lock" | "package-lock.json" }[] = [];
     let entries;
     try {
         entries = await readdir(dir, { withFileTypes: true });
     } catch (err) {
-        // If a directory cannot be read (e.g. permission error), skip it
         return [];
     }
 
