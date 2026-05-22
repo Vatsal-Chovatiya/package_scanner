@@ -36,7 +36,6 @@ interface OSVBatchResponse {
     results: OSVBatchResponseItem[];
 }
 
-const OSV_QUERY_URL = "https://api.osv.dev/v1/query";
 const OSV_BATCH_URL = "https://api.osv.dev/v1/querybatch";
 const OSV_GET_VULN_URL = "https://api.osv.dev/v1/vulns/";
 
@@ -70,7 +69,7 @@ async function pool<T, R>(
 }
 
 
-export async function fetchVulnerabilityDetails(id: string): Promise<OSVVulnerability> {
+async function fetchVulnerabilityDetails(id: string): Promise<OSVVulnerability> {
     const url = `${OSV_GET_VULN_URL}${id}`;
     const response = await fetch(url, {
         method: "GET",
@@ -87,45 +86,6 @@ export async function fetchVulnerabilityDetails(id: string): Promise<OSVVulnerab
     }
 
     return (await response.json()) as OSVVulnerability;
-}
-
-export async function checkVulnerabilities(
-    name: string,
-    version: string,
-    ecosystem: string = "npm",
-): Promise<VulnCheckResult> {
-    const payload = {
-        version,
-        package: { name, ecosystem },
-    };
-
-    const response = await fetch(OSV_QUERY_URL, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-        const body = await response.text();
-        throw new Error(
-            `OSV API returned HTTP ${response.status} for ${name}@${version}: ${body}`
-        );
-    }
-
-    interface OSVQueryResponse {
-        vulns?: OSVVulnerability[];
-    }
-
-    const data = (await response.json()) as OSVQueryResponse;
-
-    return {
-        name,
-        version,
-        vulns: data.vulns ?? [],
-    };
 }
 
 export async function checkVulnerabilitiesBatch(
