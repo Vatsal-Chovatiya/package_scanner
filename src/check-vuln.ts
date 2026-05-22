@@ -15,24 +15,12 @@ export interface VulnCheckResult {
     vulns: OSVVulnerability[];
 }
 
-// ─── Internal ────────────────────────────────────────────────────────────────
-
 const OSV_QUERY_URL = "https://api.osv.dev/v1/query";
 
 interface OSVQueryResponse {
     vulns?: OSVVulnerability[];
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
-/**
- * Query the OSV database for known vulnerabilities affecting a specific
- * package at a specific version.
- *
- * Returns a result object — never prints anything.
- * Throws on network / HTTP errors so the caller can decide on retry or
- * graceful degradation.
- */
 export async function checkVulnerabilities(
     name: string,
     version: string,

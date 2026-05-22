@@ -1,23 +1,24 @@
-import { join } from "path";
+import { join, relative } from "path";
+import { readdir } from "fs/promises";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface PackageEntry {
     name: string;
     version: string;
+    lockfiles?: string[];
+}
+
+export interface LockfileInfo {
+    path: string;
+    type: "bun.lock" | "package-lock.json";
+    packageCount: number;
 }
 
 export interface ParseResult {
     packages: PackageEntry[];
-    lockfileType: "bun.lock" | "package-lock.json";
+    lockfiles: LockfileInfo[];
 }
-
-// ─── Internal helpers ────────────────────────────────────────────────────────
-
-/**
- * Bun.lock uses trailing commas which are invalid JSON.
- * Strip them so JSON.parse succeeds.
- */
 function stripTrailingCommas(jsonString: string): string {
     let insideString = false;
     let result = "";
@@ -57,7 +58,6 @@ function parseBunLockPackages(packages: Record<string, unknown>): PackageEntry[]
         const specifier = pkgData[0];
         if (typeof specifier !== "string") continue;
 
-        // Scoped packages like @types/bun@1.3.14 — version is after the *last* @
         const lastAtIndex = specifier.lastIndexOf("@");
         if (lastAtIndex > 0) {
             entries.push({
@@ -96,56 +96,111 @@ function parseNpmLockPackages(packages: Record<string, unknown>): PackageEntry[]
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-/**
- * Reads the lockfile in `projectDir` (bun.lock or package-lock.json),
- * parses it, and returns a flat list of {name, version} for every
- * resolved dependency.
- *
- * Throws on any error — callers decide how to handle failures.
- */
-export async function parseLockfile(projectDir: string): Promise<ParseResult> {
-    const bunLockPath = join(projectDir, "bun.lock");
-    const npmLockPath = join(projectDir, "package-lock.json");
-
-    let lockfilePath: string;
-    let lockfileType: ParseResult["lockfileType"];
-
-    // Prefer bun.lock, fall back to package-lock.json
-    if (await Bun.file(bunLockPath).exists()) {
-        lockfilePath = bunLockPath;
-        lockfileType = "bun.lock";
-    } else if (await Bun.file(npmLockPath).exists()) {
-        lockfilePath = npmLockPath;
-        lockfileType = "package-lock.json";
-    } else {
-        throw new Error(
-            `No lockfile found in ${projectDir}. Expected bun.lock or package-lock.json.`
-        );
-    }
-
-    const lockfileText = await Bun.file(lockfilePath).text();
-    const cleanedText = stripTrailingCommas(lockfileText);
-
-    let lockfile: Record<string, unknown>;
+async function findLockfiles( dir: string,  baseDir: string = dir): Promise<{ absolutePath: string; relativePath: string; type: "bun.lock" | "package-lock.json" }[]> {
+    const results: { absolutePath: string; relativePath: string; type: "bun.lock" | "package-lock.json" }[] = [];
+    let entries;
     try {
-        lockfile = JSON.parse(cleanedText);
+        entries = await readdir(dir, { withFileTypes: true });
     } catch (err) {
+        // If a directory cannot be read (e.g. permission error), skip it
+        return [];
+    }
+
+    const bunLockExists = entries.some(e => e.isFile() && e.name === "bun.lock");
+    const npmLockExists = entries.some(e => e.isFile() && e.name === "package-lock.json");
+
+    if (bunLockExists) {
+        const abs = join(dir, "bun.lock");
+        results.push({
+            absolutePath: abs,
+            relativePath: relative(baseDir, abs),
+            type: "bun.lock"
+        });
+    } else if (npmLockExists) {
+        const abs = join(dir, "package-lock.json");
+        results.push({
+            absolutePath: abs,
+            relativePath: relative(baseDir, abs),
+            type: "package-lock.json"
+        });
+    }
+
+    for (const entry of entries) {
+        if (entry.isDirectory() && !entry.isSymbolicLink()) {
+            const name = entry.name;
+            if (name === "node_modules" || name.startsWith(".")) {
+                continue;
+            }
+            const subresults = await findLockfiles(join(dir, name), baseDir);
+            results.push(...subresults);
+        }
+    }
+
+    return results;
+}
+
+
+export async function parseLockfile(projectDir: string): Promise<ParseResult> {
+    const lockfiles = await findLockfiles(projectDir);
+    if (lockfiles.length === 0) {
         throw new Error(
-            `Failed to parse JSON in ${lockfilePath}: ${err instanceof Error ? err.message : String(err)}`
+            `No lockfile found in ${projectDir} or its subdirectories. Expected bun.lock or package-lock.json.`
         );
     }
 
-    const packages = lockfile.packages;
-    if (!packages || typeof packages !== "object") {
-        throw new Error(
-            `Invalid lockfile format: "packages" field missing or not an object in ${lockfilePath}.`
-        );
+    const allPackagesMap = new Map<string, { name: string; version: string; lockfiles: string[] }>();
+    const lockfileInfos: LockfileInfo[] = [];
+
+    for (const lf of lockfiles) {
+        const lockfileText = await Bun.file(lf.absolutePath).text();
+        const cleanedText = stripTrailingCommas(lockfileText);
+
+        let lockfile: Record<string, unknown>;
+        try {
+            lockfile = JSON.parse(cleanedText);
+        } catch (err) {
+            throw new Error(
+                `Failed to parse JSON in ${lf.relativePath}: ${err instanceof Error ? err.message : String(err)}`
+            );
+        }
+
+        const packages = lockfile.packages;
+        if (!packages || typeof packages !== "object") {
+            throw new Error(
+                `Invalid lockfile format: "packages" field missing or not an object in ${lf.relativePath}.`
+            );
+        }
+
+        const parsedEntries =
+            lf.type === "bun.lock"
+                ? parseBunLockPackages(packages as Record<string, unknown>)
+                : parseNpmLockPackages(packages as Record<string, unknown>);
+
+        lockfileInfos.push({
+            path: lf.relativePath,
+            type: lf.type,
+            packageCount: parsedEntries.length,
+        });
+
+        for (const entry of parsedEntries) {
+            const key = `${entry.name}@${entry.version}`;
+            const existing = allPackagesMap.get(key);
+            if (existing) {
+                if (!existing.lockfiles.includes(lf.relativePath)) {
+                    existing.lockfiles.push(lf.relativePath);
+                }
+            } else {
+                allPackagesMap.set(key, {
+                    name: entry.name,
+                    version: entry.version,
+                    lockfiles: [lf.relativePath]
+                });
+            }
+        }
     }
 
-    const parsed =
-        lockfileType === "bun.lock"
-            ? parseBunLockPackages(packages as Record<string, unknown>)
-            : parseNpmLockPackages(packages as Record<string, unknown>);
-
-    return { packages: parsed, lockfileType };
+    return {
+        packages: Array.from(allPackagesMap.values()),
+        lockfiles: lockfileInfos,
+    };
 }

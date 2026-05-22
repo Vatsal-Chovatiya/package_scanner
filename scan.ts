@@ -16,10 +16,20 @@ async function scan() {
         process.exit(1);
     }
 
-    const { packages, lockfileType } = parseResult;
-    console.log(
-        `Found ${packages.length} packages in ${lockfileType}\n`
-    );
+    const { packages, lockfiles } = parseResult;
+    if (lockfiles.length === 1 && lockfiles[0]) {
+        console.log(
+            `Found ${packages.length} packages in ${lockfiles[0].path}\n`
+        );
+    } else {
+        console.log(
+            `Found ${packages.length} unique packages across ${lockfiles.length} lockfiles:`
+        );
+        for (const lf of lockfiles) {
+            console.log(`  • ${lf.path} (${lf.packageCount} packages)`);
+        }
+        console.log();
+    }
 
     // ── Step 2: Check each package against OSV — sequentially ────────────────
     const vulnerable: VulnCheckResult[] = [];
@@ -39,8 +49,6 @@ async function scan() {
             if (result.vulns.length > 0) {
                 vulnerable.push(result);
             }
-            // Clean packages produce zero output — that's intentional.
-            // The summary at the end tells the full story.
         } catch (err) {
             errors.push({
                 name: pkg.name,
@@ -49,12 +57,7 @@ async function scan() {
             });
         }
     }
-
-    // Clear the progress line
     process.stdout.write(" ".repeat(80) + "\r");
-
-    // ── Step 3: Print summary ────────────────────────────────────────────────
-
     console.log("═".repeat(70));
     console.log("  SCAN SUMMARY");
     console.log("═".repeat(70));
@@ -71,7 +74,9 @@ async function scan() {
         console.log("\nVULNERABLE PACKAGES:\n");
 
         for (const result of vulnerable) {
-            console.log(`  ┌─ ${result.name}@${result.version}  (${result.vulns.length} advisory/ies)`);
+            const pkgInfo = packages.find((p) => p.name === result.name && p.version === result.version);
+            const lockfilesStr = pkgInfo?.lockfiles ? ` (found in: ${pkgInfo.lockfiles.join(", ")})` : "";
+            console.log(`  ┌─ ${result.name}@${result.version}${lockfilesStr}  (${result.vulns.length} advisory/ies)`);
 
             for (const vuln of result.vulns) {
                 const title =
@@ -94,8 +99,6 @@ async function scan() {
         }
     }
 
-    // ── Detail: errors ───────────────────────────────────────────────────────
-
     if (errors.length > 0) {
         console.log("\nPACKAGES THAT FAILED TO CHECK:\n");
         for (const e of errors) {
@@ -103,7 +106,7 @@ async function scan() {
         }
     }
 
-    console.log(); // trailing newline for clean terminal output
+    console.log();
 }
 
 scan().catch((err) => {
