@@ -72,8 +72,20 @@ function parseNpmLockPackages(packages: Record<string, unknown>): PackageEntry[]
     for (const [pkgPath, pkgData] of Object.entries(packages)) {
         if (pkgPath === "") continue;
 
-        
-        const cleanName = pkgPath.replace(/^node_modules\//, "");
+        let cleanName = pkgPath;
+        if (pkgData && typeof pkgData === "object") {
+            const dataObj = pkgData as Record<string, unknown>;
+            if (typeof dataObj.name === "string") {
+                cleanName = dataObj.name;
+            } else {
+                const lastNodeModulesIndex = pkgPath.lastIndexOf("node_modules/");
+                if (lastNodeModulesIndex !== -1) {
+                    cleanName = pkgPath.slice(lastNodeModulesIndex + "node_modules/".length);
+                } else {
+                    cleanName = pkgPath.replace(/^node_modules\//, "");
+                }
+            }
+        }
 
         if (pkgData && typeof pkgData === "object" && "version" in pkgData) {
             const { version } = pkgData as { version?: unknown };

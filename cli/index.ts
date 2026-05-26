@@ -5,7 +5,7 @@ import {
 } from "../core";
 
 async function scan() {
-    const projectDir = process.cwd();
+    const projectDir = process.argv[2] || process.cwd();
 
     let parseResult;
     try {
@@ -104,6 +104,10 @@ async function scan() {
     }
 
     console.log();
+
+    if (vulnerable.length > 0 || errors.length > 0) {
+        process.exit(1);
+    }
 }
 
 scan().catch((err) => {
